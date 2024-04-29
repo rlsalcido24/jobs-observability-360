@@ -1,0 +1,422 @@
+{
+  "datasets": [
+    {
+      "name": "00949975",
+      "displayName": "jobmem",
+      "query": "with clusterutil as (SELECT * from \n\tsystem.compute.node_timeline\nWHERE\n\tstart_time >= date_add(now(), -:lookbackwindow::int)\n),\n\njobutil as (\n    select * from system.billing.usage\n    where usage_date >= date_add(now(), -:lookbackwindow::int)\n    and sku_name ilike '%jobs%'\n    and sku_name not ilike '%jobs_serverless%'\n),\n\njunto as (\nselect jobutil.usage_metadata.job_id as jobid, avg(jobutil.usage_quantity) as dbus,\navg(cpu_user_percent + cpu_system_percent) as `Avg CPU Utilization`, \nmax(cpu_user_percent + cpu_system_percent) as `Peak CPU Utilization`, \n\tavg(cpu_wait_percent) as `Avg CPU Disk Wait`,\n\tmax(cpu_wait_percent) as `Max CPU Disk Wait`,\n\tavg(mem_used_percent) as `Avg Memory Utilization`, \n\tmax(mem_used_percent) as `Max Memory Utilization`\nfrom clusterutil join jobutil\non clusterutil.cluster_id = jobutil.usage_metadata.cluster_id\ngroup by 1)\n\nselect *\nfrom junto\norder by `Avg Memory Utilization` desc\nlimit 10",
+      "parameters": [
+        {
+          "displayName": "lookbackwindow",
+          "keyword": "lookbackwindow",
+          "dataType": "DECIMAL",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DECIMAL",
+              "values": [
+                {
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "429f352e",
+      "displayName": "spendbytag",
+      "query": "with tagraw as (\n    select explode(custom_tags) as (llave, val), usage_quantity as rawdbus  \n    from system.billing.usage),\n\ntagspend as ( select val as tagbucket, sum(rawdbus) as dbus\nfrom tagraw \ngroup by 1),\n\ncatchall as (select 'catchall' as tagbucket , sum(usage_quantity) as dbus\nfrom system.billing.usage\nwhere usage_date >= date_add(now(), -:lookbackwindow::int)\nand cardinality(custom_tags) = 0)\n\nselect * from tagspend\nunion all\nselect * from catchall\norder by dbus desc\nlimit 20",
+      "parameters": [
+        {
+          "displayName": "lookbackwindow",
+          "keyword": "lookbackwindow",
+          "dataType": "DECIMAL",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DECIMAL",
+              "values": [
+                {
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "60ed9c1a",
+      "displayName": "jobalert",
+      "query": "with clusterutil as (SELECT * from \n\tsystem.compute.clusters\n),\n\njobutil as (\n    select * from system.billing.usage\n    where usage_date >= date_add(now(), -:lookbackwindow::int)\n    and sku_name ilike '%jobs%'\n    and sku_name not ilike '%jobs_serverless%'\n)\n\nselect cu.workspace_id, ju.usage_metadata.job_id, any_value(min_autoscale_workers), any_value(max_autoscale_workers), any_value(auto_termination_minutes) from \nclusterutil cu join jobutil ju\non cu.cluster_id = ju.usage_metadata.cluster_id\nwhere min_autoscale_workers is NULL OR max_autoscale_workers is NULL or auto_termination_minutes is NULL\ngroup by 1, 2",
+      "parameters": [
+        {
+          "displayName": "lookbackwindow",
+          "keyword": "lookbackwindow",
+          "dataType": "DECIMAL",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DECIMAL",
+              "values": [
+                {
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8a9153d6",
+      "displayName": "jobdbr",
+      "query": "with clusterutil as (SELECT *  from \n\tsystem.compute.clusters\n),\n\njobutil as (\n    select * from system.billing.usage\n    where usage_date >= date_add(now(), -:lookbackwindow::int)\n    and sku_name ilike '%jobs%'\n    and sku_name not ilike '%jobs_serverless%'\n)\n\nselect cu.workspace_id, ju.usage_metadata.job_id, any_value(dbr_Version) from \nclusterutil cu join jobutil ju\non cu.cluster_id = ju.usage_metadata.cluster_id\nwhere left(dbr_version, 1) <> '1'\ngroup by 1, 2",
+      "parameters": [
+        {
+          "displayName": "lookbackwindow",
+          "keyword": "lookbackwindow",
+          "dataType": "DECIMAL",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DECIMAL",
+              "values": [
+                {
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8e6a641c",
+      "displayName": "joboptim",
+      "query": "with clusterutil as (SELECT * from \n\tsystem.compute.node_timeline\nWHERE\n\tstart_time >= date_add(now(), -:lookbackwindow::int)\n),\n\njobutil as (\n    select * from system.billing.usage\n    where usage_date >= date_add(now(), -:lookbackwindow::int)\n    and sku_name ilike '%jobs%'\n    and sku_name not ilike '%jobs_serverless%'\n),\n\njunto as (\nselect jobutil.usage_metadata.job_id as jobid, avg(jobutil.usage_quantity) as dbus,\navg(cpu_user_percent + cpu_system_percent) as `Avg CPU Utilization`, \nmax(cpu_user_percent + cpu_system_percent) as `Peak CPU Utilization`, \n\tavg(cpu_wait_percent) as `Avg CPU Disk Wait`,\n\tmax(cpu_wait_percent) as `Max CPU Disk Wait`,\n\tavg(mem_used_percent) as `Avg Memory Utilization`, \n\tmax(mem_used_percent) as `Max Memory Utilization`\nfrom clusterutil join jobutil\non clusterutil.cluster_id = jobutil.usage_metadata.cluster_id\ngroup by 1)\n\nselect *, (dbus * (1 - (`Avg CPU Utilization` / 100))) * .15 as maxsavings\nfrom junto\norder by maxsavings desc\nlimit 10\n",
+      "parameters": [
+        {
+          "displayName": "lookbackwindow",
+          "keyword": "lookbackwindow",
+          "dataType": "DECIMAL",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DECIMAL",
+              "values": [
+                {
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "e3f1f8a1",
+      "displayName": "jobutil",
+      "query": "with clusterutil as (SELECT * from \n\tsystem.compute.node_timeline\nWHERE\n\tstart_time >= date_add(now(), -:lookbackwindow::int)\n),\n\njobutil as (\n    select * from system.billing.usage\n    where usage_date >= date_add(now(), -:lookbackwindow::int)\n    and sku_name ilike '%jobs%'\n    and sku_name not ilike '%jobs_serverless%'\n),\n\njunto as (\nselect jobutil.usage_metadata.job_id as jobid, avg(jobutil.usage_quantity) as dbus,\navg(cpu_user_percent + cpu_system_percent) as `Avg CPU Utilization`, \nmax(cpu_user_percent + cpu_system_percent) as `Peak CPU Utilization`, \n\tavg(cpu_wait_percent) as `Avg CPU Disk Wait`,\n\tmax(cpu_wait_percent) as `Max CPU Disk Wait`,\n\tavg(mem_used_percent) as `Avg Memory Utilization`, \n\tmax(mem_used_percent) as `Max Memory Utilization`\nfrom clusterutil join jobutil\non clusterutil.cluster_id = jobutil.usage_metadata.cluster_id\ngroup by 1)\n\nselect *, (dbus * (1 - (`Avg CPU Utilization` / 100))) * .15 as maxsavings\nfrom junto\norder by maxsavings desc\nlimit 10",
+      "parameters": [
+        {
+          "displayName": "lookbackwindow",
+          "keyword": "lookbackwindow",
+          "dataType": "DECIMAL",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DECIMAL",
+              "values": [
+                {
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "969b8803",
+      "displayName": "New Page",
+      "layout": [
+        {
+          "widget": {
+            "name": "12806fda",
+            "queries": [
+              {
+                "name": "433ad0000dc14e01af29d8f97adc52b1",
+                "query": {
+                  "datasetName": "8e6a641c",
+                  "fields": [
+                    {
+                      "name": "column_e26f70d610171",
+                      "expression": "SUM(`maxsavings`)"
+                    },
+                    {
+                      "name": "jobid",
+                      "expression": "`jobid`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 0,
+              "viz_spec": {
+                "display_name": "Top 10 Jobs by Potential Savings",
+                "description": "",
+                "viz_type": "CHART",
+                "serialized_options": "{\"version\":2,\"globalSeriesType\":\"column\",\"sortX\":true,\"sortY\":true,\"legend\":{\"traceorder\":\"normal\"},\"xAxis\":{\"type\":\"-\",\"labels\":{\"enabled\":true},\"title\":{\"text\":\"Top 10 jobs by potential savings\"}},\"yAxis\":[{\"type\":\"-\",\"title\":{\"text\":\"savings\"}},{\"type\":\"-\",\"opposite\":true}],\"alignYAxesAtZero\":true,\"error_y\":{\"type\":\"data\",\"visible\":true},\"series\":{\"stacking\":\"stack\",\"error_y\":{\"type\":\"data\",\"visible\":true}},\"seriesOptions\":{\"column_e26f70d610171\":{\"yAxis\":0,\"type\":\"column\"}},\"valuesOptions\":{},\"direction\":{\"type\":\"counterclockwise\"},\"sizemode\":\"diameter\",\"coefficient\":1,\"numberFormat\":\"$0,0.[00]\",\"percentFormat\":\"0[.]00%\",\"textFormat\":\"\",\"missingValuesAsZero\":true,\"useAggregationsUi\":true,\"swappedAxes\":false,\"dateTimeFormat\":\"DD/MM/YYYY HH:mm\",\"showDataLabels\":false,\"columnConfigurationMap\":{\"y\":[{\"id\":\"column_e26f70d610171\",\"column\":\"maxsavings\",\"transform\":\"SUM\"}],\"series\":{\"column\":\"jobid\",\"id\":\"column_95be446a18242\"}},\"isAggregationOn\":true,\"condensed\":true,\"withRowNumber\":true,\"hideXAxis\":false}",
+                "query_name": "433ad0000dc14e01af29d8f97adc52b1"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "2440a811",
+            "queries": [
+              {
+                "name": "d19e789d349347f5a573a98432216c45",
+                "query": {
+                  "datasetName": "60ed9c1a",
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 0,
+              "viz_spec": {
+                "display_name": "Jobs without scaling or auto-terminate",
+                "description": "",
+                "viz_type": "TABLE",
+                "serialized_options": "{\"itemsPerPage\":25,\"condensed\":true,\"withRowNumber\":false,\"columns\":[{\"booleanValues\":[\"false\",\"true\"],\"imageUrlTemplate\":\"{{ @ }}\",\"imageTitleTemplate\":\"{{ @ }}\",\"imageWidth\":\"\",\"imageHeight\":\"\",\"linkUrlTemplate\":\"{{ @ }}\",\"linkTextTemplate\":\"{{ @ }}\",\"linkTitleTemplate\":\"{{ @ }}\",\"linkOpenInNewTab\":true,\"name\":\"workspace_id\",\"type\":\"string\",\"displayAs\":\"string\",\"visible\":true,\"order\":100000,\"title\":\"workspace_id\",\"allowSearch\":false,\"alignContent\":\"left\",\"allowHTML\":false,\"highlightLinks\":false,\"useMonospaceFont\":false,\"preserveWhitespace\":false},{\"booleanValues\":[\"false\",\"true\"],\"imageUrlTemplate\":\"{{ @ }}\",\"imageTitleTemplate\":\"{{ @ }}\",\"imageWidth\":\"\",\"imageHeight\":\"\",\"linkUrlTemplate\":\"{{ @ }}\",\"linkTextTemplate\":\"{{ @ }}\",\"linkTitleTemplate\":\"{{ @ }}\",\"linkOpenInNewTab\":true,\"name\":\"job_id\",\"type\":\"string\",\"displayAs\":\"string\",\"visible\":true,\"order\":100001,\"title\":\"job_id\",\"allowSearch\":false,\"alignContent\":\"left\",\"allowHTML\":false,\"highlightLinks\":false,\"useMonospaceFont\":false,\"preserveWhitespace\":false},{\"numberFormat\":\"0\",\"booleanValues\":[\"false\",\"true\"],\"imageUrlTemplate\":\"{{ @ }}\",\"imageTitleTemplate\":\"{{ @ }}\",\"imageWidth\":\"\",\"imageHeight\":\"\",\"linkUrlTemplate\":\"{{ @ }}\",\"linkTextTemplate\":\"{{ @ }}\",\"linkTitleTemplate\":\"{{ @ }}\",\"linkOpenInNewTab\":true,\"name\":\"any_value(min_autoscale_workers)\",\"type\":\"integer\",\"displayAs\":\"number\",\"visible\":false,\"order\":100002,\"title\":\"any_value(min_autoscale_workers)\",\"allowSearch\":false,\"alignContent\":\"right\",\"allowHTML\":false,\"highlightLinks\":false,\"useMonospaceFont\":false,\"preserveWhitespace\":false},{\"numberFormat\":\"0\",\"booleanValues\":[\"false\",\"true\"],\"imageUrlTemplate\":\"{{ @ }}\",\"imageTitleTemplate\":\"{{ @ }}\",\"imageWidth\":\"\",\"imageHeight\":\"\",\"linkUrlTemplate\":\"{{ @ }}\",\"linkTextTemplate\":\"{{ @ }}\",\"linkTitleTemplate\":\"{{ @ }}\",\"linkOpenInNewTab\":true,\"name\":\"any_value(max_autoscale_workers)\",\"type\":\"integer\",\"displayAs\":\"number\",\"visible\":false,\"order\":100003,\"title\":\"any_value(max_autoscale_workers)\",\"allowSearch\":false,\"alignContent\":\"right\",\"allowHTML\":false,\"highlightLinks\":false,\"useMonospaceFont\":false,\"preserveWhitespace\":false},{\"numberFormat\":\"0\",\"booleanValues\":[\"false\",\"true\"],\"imageUrlTemplate\":\"{{ @ }}\",\"imageTitleTemplate\":\"{{ @ }}\",\"imageWidth\":\"\",\"imageHeight\":\"\",\"linkUrlTemplate\":\"{{ @ }}\",\"linkTextTemplate\":\"{{ @ }}\",\"linkTitleTemplate\":\"{{ @ }}\",\"linkOpenInNewTab\":true,\"name\":\"any_value(auto_termination_minutes)\",\"type\":\"integer\",\"displayAs\":\"number\",\"visible\":false,\"order\":100004,\"title\":\"any_value(auto_termination_minutes)\",\"allowSearch\":false,\"alignContent\":\"right\",\"allowHTML\":false,\"highlightLinks\":false,\"useMonospaceFont\":false,\"preserveWhitespace\":false}],\"version\":2}",
+                "query_name": "d19e789d349347f5a573a98432216c45"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 3,
+            "height": 14
+          }
+        },
+        {
+          "widget": {
+            "name": "31decf3d",
+            "queries": [
+              {
+                "name": "c9456eb9b25a431491cd18e34dcf94a2",
+                "query": {
+                  "datasetName": "429f352e",
+                  "fields": [
+                    {
+                      "name": "column_e26f70d617574",
+                      "expression": "SUM(`dbus`)"
+                    },
+                    {
+                      "name": "tagbucket",
+                      "expression": "`tagbucket`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 0,
+              "viz_spec": {
+                "display_name": "DBUs by Tag",
+                "description": "",
+                "viz_type": "CHART",
+                "serialized_options": "{\"version\":2,\"globalSeriesType\":\"pie\",\"sortX\":true,\"sortY\":true,\"legend\":{\"traceorder\":\"normal\"},\"xAxis\":{\"type\":\"-\",\"labels\":{\"enabled\":true}},\"yAxis\":[{\"type\":\"-\"},{\"type\":\"-\",\"opposite\":true}],\"alignYAxesAtZero\":true,\"error_y\":{\"type\":\"data\",\"visible\":true},\"series\":{\"stacking\":null,\"error_y\":{\"type\":\"data\",\"visible\":true}},\"seriesOptions\":{\"column_e26f70d617574\":{\"name\":\"dbus\",\"yAxis\":0,\"type\":\"pie\"}},\"valuesOptions\":{},\"direction\":{\"type\":\"counterclockwise\"},\"sizemode\":\"diameter\",\"coefficient\":1,\"numberFormat\":\"0,0.[00000]\",\"percentFormat\":\"0[.]00%\",\"textFormat\":\"\",\"missingValuesAsZero\":true,\"useAggregationsUi\":true,\"swappedAxes\":false,\"dateTimeFormat\":\"DD/MM/YY HH:mm:ss.SSS\",\"showDataLabels\":true,\"columnConfigurationMap\":{\"x\":{\"column\":\"tagbucket\",\"id\":\"column_e26f70d617573\"},\"y\":[{\"column\":\"dbus\",\"transform\":\"SUM\",\"id\":\"column_e26f70d617574\"}]},\"condensed\":true,\"withRowNumber\":true}",
+                "query_name": "c9456eb9b25a431491cd18e34dcf94a2"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "68bb0b97",
+            "queries": [
+              {
+                "name": "771afd20354346a98f77a21cddde7326",
+                "query": {
+                  "datasetName": "8a9153d6",
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 0,
+              "viz_spec": {
+                "display_name": "Jobs on <10 DBR",
+                "description": "",
+                "viz_type": "TABLE",
+                "serialized_options": "{\"itemsPerPage\":25,\"condensed\":true,\"withRowNumber\":false,\"columns\":[{\"booleanValues\":[\"false\",\"true\"],\"imageUrlTemplate\":\"{{ @ }}\",\"imageTitleTemplate\":\"{{ @ }}\",\"imageWidth\":\"\",\"imageHeight\":\"\",\"linkUrlTemplate\":\"{{ @ }}\",\"linkTextTemplate\":\"{{ @ }}\",\"linkTitleTemplate\":\"{{ @ }}\",\"linkOpenInNewTab\":true,\"name\":\"workspace_id\",\"type\":\"string\",\"displayAs\":\"string\",\"visible\":true,\"order\":100000,\"title\":\"workspace_id\",\"allowSearch\":false,\"alignContent\":\"left\",\"allowHTML\":false,\"highlightLinks\":false,\"useMonospaceFont\":false,\"preserveWhitespace\":false},{\"booleanValues\":[\"false\",\"true\"],\"imageUrlTemplate\":\"{{ @ }}\",\"imageTitleTemplate\":\"{{ @ }}\",\"imageWidth\":\"\",\"imageHeight\":\"\",\"linkUrlTemplate\":\"{{ @ }}\",\"linkTextTemplate\":\"{{ @ }}\",\"linkTitleTemplate\":\"{{ @ }}\",\"linkOpenInNewTab\":true,\"name\":\"job_id\",\"type\":\"string\",\"displayAs\":\"string\",\"visible\":true,\"order\":100001,\"title\":\"job_id\",\"allowSearch\":false,\"alignContent\":\"left\",\"allowHTML\":false,\"highlightLinks\":false,\"useMonospaceFont\":false,\"preserveWhitespace\":false},{\"booleanValues\":[\"false\",\"true\"],\"imageUrlTemplate\":\"{{ @ }}\",\"imageTitleTemplate\":\"{{ @ }}\",\"imageWidth\":\"\",\"imageHeight\":\"\",\"linkUrlTemplate\":\"{{ @ }}\",\"linkTextTemplate\":\"{{ @ }}\",\"linkTitleTemplate\":\"{{ @ }}\",\"linkOpenInNewTab\":true,\"name\":\"any_value(dbr_Version)\",\"type\":\"string\",\"displayAs\":\"string\",\"visible\":true,\"order\":100002,\"title\":\"any_value(dbr_Version)\",\"allowSearch\":false,\"alignContent\":\"left\",\"allowHTML\":false,\"highlightLinks\":false,\"useMonospaceFont\":false,\"preserveWhitespace\":false}],\"version\":2}",
+                "query_name": "771afd20354346a98f77a21cddde7326"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 16,
+            "width": 3,
+            "height": 14
+          }
+        },
+        {
+          "widget": {
+            "name": "cdf60d8d",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "e3f1f8a1",
+                  "fields": [
+                    {
+                      "name": "jobid",
+                      "expression": "`jobid`"
+                    },
+                    {
+                      "name": "sum(Avg CPU Utilization)",
+                      "expression": "SUM(`Avg CPU Utilization`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "jobid",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "jobid"
+                },
+                "y": {
+                  "fieldName": "sum(Avg CPU Utilization)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Avg CPU Util"
+                  },
+                  "displayName": "Avg CPU Util"
+                },
+                "label": {
+                  "show": false
+                }
+              },
+              "format": {
+                "timeFormat": {
+                  "formatType": "moment",
+                  "format": "DD/MM/YY HH:mm:ss.SSS"
+                }
+              },
+              "frame": {
+                "title": "Top 10 Lowest CPU Util Jobs",
+                "showTitle": true
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "e6c2d438",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "00949975",
+                  "fields": [
+                    {
+                      "name": "jobid",
+                      "expression": "`jobid`"
+                    },
+                    {
+                      "name": "sum(Avg Memory Utilization)",
+                      "expression": "SUM(`Avg Memory Utilization`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "jobid",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "jobid"
+                },
+                "y": {
+                  "fieldName": "sum(Avg Memory Utilization)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sum of Avg Memory Utilization"
+                }
+              },
+              "format": {
+                "timeFormat": {
+                  "formatType": "moment",
+                  "format": "DD/MM/YY HH:mm:ss.SSS"
+                }
+              },
+              "frame": {
+                "title": "Top 10 Jobs High Mem Util",
+                "showTitle": true
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 8,
+            "width": 3,
+            "height": 8
+          }
+        }
+      ]
+    }
+  ]
+}
